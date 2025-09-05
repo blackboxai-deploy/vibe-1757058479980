@@ -1,0 +1,96 @@
+# Docker Compose برای ربات ترید حرفه‌ای
+# Professional Trading Bot Docker Compose
+
+version: '3.8'
+
+services:
+  # Backend API Service
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trading-bot-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-your-32-byte-encryption-key-here}
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/trading_bot.db
+    volumes:
+      - ./backend/data:/app/data  # مسیر امن برای ذخیره دیتابیس و کلیدهای رمزنگاری شده
+      - ./backend/logs:/app/logs  # مسیر لاگ‌ها
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on: []
+
+  # Frontend Service  
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: trading-bot-frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - backend
+
+  # Optional: Reverse Proxy (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: trading-bot-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro  # برای SSL certificates
+    networks:
+      - trading-network
+    depends_on:
+      - frontend
+      - backend
+    profiles:
+      - production  # فقط در محیط production فعال شود
+
+networks:
+  trading-network:
+    driver: bridge
+    name: trading-bot-network
+
+volumes:
+  # Volume برای داده‌های دائمی
+  trading-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./backend/data
+  
+  # Volume برای لاگ‌ها
+  trading-logs:
+    driver: local
+    driver_opts:
+      type: none  
+      o: bind
+      device: ./backend/logs
